@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -124,9 +125,10 @@ func (c *Client) Send(ctx context.Context, env *sendmail.Envelope) error {
 		return &DeliveryError{RetryableFlag: false, Code: 67, Msg: "no deliverable targets"}
 	}
 
-	formatted := formatMessage(env)
+	plainText := formatMessage(env)
+	htmlText := formatMessageHTML(env)
 	for roomID := range targets {
-		if err := c.sendText(ctx, roomID, formatted); err != nil {
+		if err := c.sendText(ctx, roomID, plainText, htmlText); err != nil {
 			return err
 		}
 	}
@@ -167,7 +169,15 @@ func (c *Client) resolveRecipient(ctx context.Context, addr string) (string, err
 }
 
 // createDM creates (or finds) a DM room with the given user.
+// First checks that the user exists by looking up their profile.
 func (c *Client) createDM(ctx context.Context, userID string) (string, error) {
+	// Check user exists by looking up their profile.
+	// If the user doesn't exist (404), don't create a phantom room —
+	// let the caller fall through to the default room.
+	if err := c.checkUserExists(ctx, userID); err != nil {
+		return "", err
+	}
+
 	// Try creating a DM room via /createRoom with is_direct
 	body := map[string]interface{}{
 		"is_direct":    true,
@@ -193,6 +203,36 @@ func (c *Client) createDM(ctx context.Context, userID string) (string, error) {
 	return resp.RoomID, nil
 }
 
+// checkUserExists verifies that a Matrix user exists by looking up their profile.
+// Returns a permanent DeliveryError if the user doesn't exist.
+func (c *Client) checkUserExists(ctx context.Context, userID string) error {
+	var resp struct {
+		ErrCode string `json:"errcode"`
+		Error   string `json:"error"`
+	}
+	if err := c.doRequest(ctx, "GET", "/_matrix/client/v3/profile/"+url.PathEscape(userID), nil, &resp); err != nil {
+		// If the error is itself a DeliveryError, propagate it as-is.
+		var de *DeliveryError
+		if errors.As(err, &de) {
+			return de
+		}
+		return err
+	}
+	if resp.ErrCode == "M_NOT_FOUND" {
+		return &DeliveryError{
+			RetryableFlag: false,
+			Msg:           fmt.Sprintf("user %q not found", userID),
+		}
+	}
+	if resp.ErrCode != "" {
+		return &DeliveryError{
+			RetryableFlag: isTransient(resp.ErrCode),
+			Msg:           fmt.Sprintf("lookup user: %s %s", resp.ErrCode, resp.Error),
+		}
+	}
+	return nil
+}
+
 // joinRoom joins a room by alias and returns the canonical room ID.
 func (c *Client) joinRoom(ctx context.Context, roomAlias string) (string, error) {
 	apiURL := c.homeserver + "/_matrix/client/v3/join/" + url.PathEscape(roomAlias)
@@ -201,7 +241,7 @@ func (c *Client) joinRoom(ctx context.Context, roomAlias string) (string, error)
 		ErrCode string `json:"errcode"`
 		Error   string `json:"error"`
 	}
-	if err := c.doRequestRaw(ctx, "POST", apiURL, nil, &resp); err != nil {
+	if err := c.doRequestRaw(ctx, "POST", apiURL, struct{}{}, &resp); err != nil {
 		return "", err
 	}
 	if resp.ErrCode != "" {
@@ -237,11 +277,14 @@ func (c *Client) resolveRoomID(ctx context.Context, id string) (string, error) {
 	return c.joinRoom(ctx, id)
 }
 
-// sendText sends an m.text message to a room.
-func (c *Client) sendText(ctx context.Context, roomID, text string) error {
-	content := map[string]string{
-		"msgtype": "m.text",
-		"body":    text,
+// sendText sends an m.text message to a room, with HTML formatting
+// for clients that support org.matrix.custom.html.
+func (c *Client) sendText(ctx context.Context, roomID, plainText, htmlText string) error {
+	content := map[string]interface{}{
+		"msgtype":       "m.text",
+		"body":          plainText,
+		"format":        "org.matrix.custom.html",
+		"formatted_body": htmlText,
 	}
 	// Generate txnId: nanosecond timestamp + random suffix
 	txnID := fmt.Sprintf("%d-%d", time.Now().UnixNano(), os.Getpid())
@@ -426,11 +469,121 @@ func (c *Client) saveToken() error {
 	return os.WriteFile(filepath.Join(c.tokenDir, "token.json"), data, 0600)
 }
 
-// formatMessage builds the m.text message body.
+// formatMessage builds a plain-text m.text message body with clean formatting.
 func formatMessage(env *sendmail.Envelope) string {
 	var b strings.Builder
-	b.WriteString(env.Headers)
-	b.WriteString("\r\n")
-	b.WriteString(env.Body)
+
+	// Extract key headers for display
+	subject := env.Subject
+	from := extractHeader(env.Headers, "From")
+	to := extractHeader(env.Headers, "To")
+	date := env.Date
+	if date == "" {
+		date = extractHeader(env.Headers, "Date")
+	}
+
+	// Header block with padding for alignment
+	if from != "" {
+		fmt.Fprintf(&b, "From:   %s\n", from)
+	}
+	if to != "" {
+		fmt.Fprintf(&b, "To:     %s\n", to)
+	}
+	if subject != "" {
+		fmt.Fprintf(&b, "Subject: %s\n", subject)
+	}
+	if date != "" {
+		fmt.Fprintf(&b, "Date:   %s\n", date)
+	}
+
+	b.WriteString("\n")
+
+	if env.Body != "" {
+		// Indent body by 2 spaces
+		indented := "  " + strings.ReplaceAll(env.Body, "\n", "\n  ")
+		b.WriteString(indented)
+	}
+
 	return b.String()
+}
+
+// formatMessageHTML builds an HTML-formatted message body for Matrix clients
+// that support org.matrix.custom.html formatting.
+func formatMessageHTML(env *sendmail.Envelope) string {
+	var b strings.Builder
+
+	subject := env.Subject
+	from := extractHeader(env.Headers, "From")
+	to := extractHeader(env.Headers, "To")
+	date := env.Date
+	if date == "" {
+		date = extractHeader(env.Headers, "Date")
+	}
+
+	// Horizontal rule
+	// Header block with bold labels
+	if from != "" {
+		fmt.Fprintf(&b, "<b>From:</b>   %s<br>", htmlEscape(from))
+	}
+	if to != "" {
+		fmt.Fprintf(&b, "<b>To:</b>     %s<br>", htmlEscape(to))
+	}
+	if subject != "" {
+		fmt.Fprintf(&b, "<b>Subject:</b> %s<br>", htmlEscape(subject))
+	}
+	if date != "" {
+		fmt.Fprintf(&b, "<b>Date:</b>   %s<br>", htmlEscape(date))
+	}
+
+		b.WriteString("<br>")
+
+	if env.Body != "" {
+		// Indent body by 2 non-breaking spaces on every line
+		escaped := htmlEscape(env.Body)
+		lines := strings.Split(escaped, "\n")
+		for i, line := range lines {
+			if i > 0 {
+				b.WriteString("<br>")
+			}
+			b.WriteString("&nbsp;&nbsp;")
+			b.WriteString(line)
+		}
+	}
+
+	return b.String()
+}
+
+// extractHeader extracts a header value from raw RFC 5322 header text.
+func extractHeader(headers, key string) string {
+	prefix := key + ":"
+	lines := strings.Split(headers, "\n")
+	for i, line := range lines {
+		trimmed := strings.TrimRight(line, "\r")
+		if strings.HasPrefix(trimmed, prefix) {
+			val := strings.TrimSpace(trimmed[len(prefix):])
+			// Collect continuation lines (folded headers)
+			for j := i + 1; j < len(lines); j++ {
+				next := lines[j]
+				if next == "" || next == "\r" {
+					break
+				}
+				if next[0] == ' ' || next[0] == '\t' {
+					val += " " + strings.TrimSpace(next)
+				} else {
+					break
+				}
+			}
+			return val
+		}
+	}
+	return ""
+}
+
+// htmlEscape escapes HTML special characters.
+func htmlEscape(s string) string {
+	s = strings.ReplaceAll(s, "&", "&amp;")
+	s = strings.ReplaceAll(s, "<", "&lt;")
+	s = strings.ReplaceAll(s, ">", "&gt;")
+	s = strings.ReplaceAll(s, "\"", "&quot;")
+	return s
 }

@@ -1,5 +1,5 @@
 // Package config loads TOML configuration for send-matrix-mail.
-// Search order: -C <path> → $XDG_CONFIG_HOME/send-matrix-mail/sendmailrc.toml → /etc/send-matrix-mail/sendmailrc.toml.
+// Search order: -C <path> → $XDG_CONFIG_HOME/send-matrix-mail/send-matrix-mail.toml → /etc/send-matrix-mail/send-matrix-mail.toml.
 package config
 
 import (
@@ -81,14 +81,14 @@ func Load(configPath string) (*Config, error) {
 func searchPaths() []string {
 	var dirs []string
 	if d := os.Getenv("XDG_CONFIG_HOME"); d != "" {
-		dirs = append(dirs, filepath.Join(d, "send-matrix-mail", "sendmailrc.toml"))
+		dirs = append(dirs, filepath.Join(d, "send-matrix-mail", "send-matrix-mail.toml"))
 	} else {
 		home, err := os.UserHomeDir()
 		if err == nil {
-			dirs = append(dirs, filepath.Join(home, ".config", "send-matrix-mail", "sendmailrc.toml"))
+			dirs = append(dirs, filepath.Join(home, ".config", "send-matrix-mail", "send-matrix-mail.toml"))
 		}
 	}
-	dirs = append(dirs, "/etc/send-matrix-mail/sendmailrc.toml")
+	dirs = append(dirs, "/etc/send-matrix-mail/send-matrix-mail.toml")
 	return dirs
 }
 

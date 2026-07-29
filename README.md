@@ -54,7 +54,7 @@ Search order (first found wins):
 
 ### Full example
 
-See [`sendmailrc.example.toml`](./sendmailrc.example.toml) for all options.
+See [`send-matrix-mail.toml.example`](./send-matrix-mail.toml.example) for all options.
 
 ```toml
 # State/spool directory (default: $XDG_STATE_HOME/send-matrix-mail)

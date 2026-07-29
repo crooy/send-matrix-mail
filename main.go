@@ -6,6 +6,7 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log"
 	"os"
 	"os/signal"
@@ -17,7 +18,21 @@ import (
 	"send-matrix-mail/internal/sendmail"
 )
 
+// version is set at build time via -ldflags. See Makefile.
+var version = "dev"
+
 func main() {
+	// --version flag (must come before config loading so it works without config)
+	for _, a := range os.Args[1:] {
+		if a == "--version" {
+			fmt.Println("send-matrix-mail", version)
+			return
+		}
+		if a == "--" {
+			break
+		}
+	}
+
 	// Extract -C <path> from args (sendmail compat flag) before passing to sendmail.Parse
 	configPath := extractConfigPath(os.Args)
 

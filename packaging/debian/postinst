@@ -1,0 +1,25 @@
+#!/bin/sh
+set -e
+
+BIN=/usr/bin/send-matrix-mail
+SENDMAIL=/usr/sbin/sendmail
+
+case "$1" in
+configure)
+	# Register as sendmail alternative
+	update-alternatives --install "$SENDMAIL" sendmail "$BIN" 50 \
+		--slave /usr/share/man/man1/sendmail.1.gz sendmail.1.gz \
+			/usr/share/man/man1/send-matrix-mail.1.gz
+	;;
+abort-upgrade|abort-remove|abort-install)
+	;;
+*)
+	echo "postinst called with unknown argument: $1" >&2
+	exit 1
+	;;
+esac
+
+# dh_installdeb will replace this with shell code for triggering
+#DEBHELPER#
+
+exit 0

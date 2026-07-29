@@ -1,5 +1,5 @@
 # send-matrix-mail configuration
-# Search paths: -C <path> → $XDG_CONFIG_HOME/send-matrix-mail/sendmailrc.toml → /etc/send-matrix-mail/sendmailrc.toml
+# Search paths: -C <path> → $XDG_CONFIG_HOME/send-matrix-mail/send-matrix-mail.toml → /etc/send-matrix-mail/send-matrix-mail.toml
 
 # State/spool directory (default: $XDG_STATE_HOME/send-matrix-mail)
 # spool_dir = "/var/spool/send-matrix-mail"

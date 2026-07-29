@@ -1,0 +1,36 @@
+# Maintainer: Crooy.com B.V. <ronald@crooy.com>
+# Contributor: Ronald <ronald@crooy.com>
+
+pkgname=send-matrix-mail
+pkgver=0.1.0
+pkgrel=1
+pkgdesc="Drop-in sendmail replacement that delivers mail as Matrix messages"
+arch=('x86_64' 'aarch64')
+url="https://github.com/yourorg/send-matrix-mail"
+license=('MIT')
+depends=('glibc')
+makedepends=('go')
+source=("$pkgname-$pkgver.tar.gz::https://github.com/yourorg/send-matrix-mail/archive/v$pkgver.tar.gz")
+sha256sums=('SKIP')
+
+build() {
+	cd "$srcdir/$pkgname-$pkgver"
+	go build -o "$pkgname" .
+}
+
+package() {
+	cd "$srcdir/$pkgname-$pkgver"
+
+	install -Dm755 "$pkgname" "$pkgdir/usr/bin/$pkgname"
+	install -Dm644 send-matrix-mail.toml.example "$pkgdir/etc/$pkgname/send-matrix-mail.toml"
+	install -Dm644 packaging/$pkgname.1 "$pkgdir/usr/share/man/man1/$pkgname.1"
+	gzip -9fn "$pkgdir/usr/share/man/man1/$pkgname.1"
+	install -Dm644 README.md "$pkgdir/usr/share/doc/$pkgname/README.md"
+
+	# Set up sendmail alternative
+	mkdir -p "$pkgdir/usr/lib/systemd/system"
+	cat > "$pkgdir/usr/lib/systemd/system/$pkgname.path" << EOF
+[Unit]
+Description=Wait for send-matrix-mail spool
+EOF
+}

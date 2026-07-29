@@ -23,10 +23,10 @@ func TestSearchPaths(t *testing.T) {
 	if len(paths) < 2 {
 		t.Fatalf("expected at least 2 paths, got %d", len(paths))
 	}
-	if !strings.HasSuffix(paths[0], filepath.Join("send-matrix-mail", "sendmailrc.toml")) {
+	if !strings.HasSuffix(paths[0], filepath.Join("send-matrix-mail", "send-matrix-mail.toml")) {
 		t.Errorf("first path: got %q, expected XDG path", paths[0])
 	}
-	if paths[len(paths)-1] != "/etc/send-matrix-mail/sendmailrc.toml" {
+	if paths[len(paths)-1] != "/etc/send-matrix-mail/send-matrix-mail.toml" {
 		t.Errorf("last path: got %q, expected /etc path", paths[len(paths)-1])
 	}
 }

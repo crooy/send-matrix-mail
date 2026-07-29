@@ -225,11 +225,19 @@ func TestFormatMessage(t *testing.T) {
 	}
 
 	formatted := formatMessage(env)
-	if !strings.Contains(formatted, "From: alice@example.com") {
+	if !strings.Contains(formatted, "From:") || !strings.Contains(formatted, "alice@example.com") {
 		t.Errorf("missing From header")
 	}
 	if !strings.Contains(formatted, "Hello, world!") {
 		t.Errorf("missing body")
+	}
+
+	html := formatMessageHTML(env)
+	if !strings.Contains(html, "<b>From:</b>") || !strings.Contains(html, "alice@example.com") {
+		t.Errorf("HTML missing From header")
+	}
+	if !strings.Contains(html, "<br>") {
+		t.Errorf("HTML missing line breaks")
 	}
 }
 

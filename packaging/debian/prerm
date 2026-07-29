@@ -1,0 +1,23 @@
+#!/bin/sh
+set -e
+
+BIN=/usr/bin/send-matrix-mail
+SENDMAIL=/usr/sbin/sendmail
+
+case "$1" in
+remove|deconfigure)
+	update-alternatives --remove sendmail "$BIN"
+	;;
+upgrade)
+	;;
+failed-upgrade)
+	;;
+*)
+	echo "prerm called with unknown argument: $1" >&2
+	exit 1
+	;;
+esac
+
+#DEBHELPER#
+
+exit 0

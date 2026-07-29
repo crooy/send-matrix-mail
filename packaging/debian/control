@@ -1,0 +1,19 @@
+Package: send-matrix-mail
+Version: 0.1.0
+Architecture: amd64
+Maintainer: Crooy.com B.V. <ronald@crooy.com>
+Section: mail
+Priority: optional
+Homepage: https://github.com/yourorg/send-matrix-mail
+Description: Drop-in sendmail replacement that delivers mail as Matrix messages
+ send-matrix-mail is a sendmail-compatible Matrix client. It reads RFC 5322
+ email from stdin, resolves recipients to Matrix delivery targets (DM, room,
+ or default room), and posts an m.text message to each unique room.
+ Messages are queued locally when the homeserver is unreachable and retried
+ with exponential backoff.
+ .
+ Features:
+  * Drop-in sendmail replacement — works with cron, PHP, monitoring tools
+  * Local spool with exponential backoff for offline resilience
+  * Three-tier recipient resolution: DM → named room → default room
+  * Pure Go, single static binary, zero runtime dependencies

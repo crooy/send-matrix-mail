@@ -1,0 +1,61 @@
+.\" send-matrix-mail manual page
+.\"
+.TH SEND-MATRIX-MAIL 1 "July 2026" "send-matrix-mail 0.1.0" "User Commands"
+.SH NAME
+send-matrix-mail \- sendmail-compatible Matrix message delivery
+.SH SYNOPSIS
+.B send-matrix-mail
+[\fI\-t\fR] [\fI\-f\fR \fIaddr\fR] [\fI\-C\fR \fIpath\fR] [\fIrecipient\fR...]
+.SH DESCRIPTION
+.B send-matrix-mail
+reads an RFC 5322 email message from stdin, resolves recipients to Matrix
+delivery targets, and posts an m.text message to each unique room. It is
+designed as a drop-in replacement for /usr/sbin/sendmail for use by cron,
+PHP, monitoring systems, and scripts.
+.SH OPTIONS
+.TP
+.B \-t
+Extract recipients from the To:, Cc:, and Bcc: headers of the message.
+.TP
+.BI \-f " addr"
+Set the envelope from (author) address.
+.TP
+.BI \-F " name"
+Set the sender full name (accepted but ignored for compatibility).
+.TP
+.B \-i, \-oi
+Ignore dots in stdin (always on — reads to EOF).
+.TP
+.BI \-C " path"
+Path to the TOML configuration file.
+.TP
+.B \-\-
+End of flags.
+.SH EXIT CODES
+.TP
+0
+Message delivered or safely queued.
+.TP
+65
+Input format error.
+.TP
+67
+No deliverable targets.
+.TP
+73
+Spool write failure (disk full, permissions).
+.TP
+78
+Configuration error.
+.SH FILES
+.TP
+.I /etc/send-matrix-mail/sendmailrc.toml
+System-wide configuration.
+.TP
+.I $XDG_CONFIG_HOME/send-matrix-mail/sendmailrc.toml
+User configuration.
+.SH AUTHOR
+Crooy.com B.V.
+.SH SEE ALSO
+.IR msmtp (1),
+.IR sendmail (8)
