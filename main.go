@@ -10,6 +10,7 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 
 	"send-matrix-mail/internal/config"
@@ -21,14 +22,26 @@ import (
 // version is set at build time via -ldflags. See Makefile.
 var version = "dev"
 
+// Defaults
+const defaultVersionFile = "VERSION"
+
 func main() {
-	// --version flag (must come before config loading so it works without config)
-	for _, a := range os.Args[1:] {
-		if a == "--version" {
+	var dryRun bool
+	var verbose bool
+
+	// Early flags: --version, -v, -n (before config loading)
+	args := os.Args[1:]
+	for i := 0; i < len(args); i++ {
+		a := args[i]
+		switch {
+		case a == "--version":
 			fmt.Println("send-matrix-mail", version)
 			return
-		}
-		if a == "--" {
+		case a == "-v" || a == "--verbose":
+			verbose = true
+		case a == "-n" || a == "--dry-run":
+			dryRun = true
+		case a == "--":
 			break
 		}
 	}
@@ -51,6 +64,18 @@ func main() {
 			os.Exit(se.Code)
 		}
 		os.Exit(65) // EX_DATAERR
+	}
+
+	if dryRun {
+		fmt.Println("--- dry run ---")
+		fmt.Printf("From:    %s\n", env.Author)
+		fmt.Printf("To:      %s\n", strings.Join(env.Recipients, ", "))
+		fmt.Printf("Subject: %s\n", env.Subject)
+		fmt.Printf("Config:  %s\n", configPath)
+		fmt.Printf("Spool:   %s\n", cfg.SpoolDir)
+		fmt.Printf("Room:    %s\n", cfg.Matrix.DefaultRoom)
+		fmt.Println("--- OK (dry run, no message sent) ---")
+		return
 	}
 
 	// Create matrix client
@@ -77,6 +102,10 @@ func main() {
 	if err := spool.Deliver(ctx, env, client.Send); err != nil {
 		log.Printf("send-matrix-mail: %v", err)
 		os.Exit(73) // EX_CANTCREAT
+	}
+
+	if verbose {
+		log.Printf("delivered to %s (recipients: %s)", cfg.Matrix.DefaultRoom, strings.Join(env.Recipients, ", "))
 	}
 }
 

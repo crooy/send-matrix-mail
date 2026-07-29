@@ -6,6 +6,11 @@ SENDMAIL=/usr/sbin/sendmail
 
 case "$1" in
 configure)
+	# Remove a real file blocking the alternatives symlink
+	if [ -f "$SENDMAIL" ] && [ ! -L "$SENDMAIL" ]; then
+		rm -f "$SENDMAIL"
+	fi
+
 	# Register as sendmail alternative
 	update-alternatives --install "$SENDMAIL" sendmail "$BIN" 50 \
 		--slave /usr/share/man/man1/sendmail.1.gz sendmail.1.gz \

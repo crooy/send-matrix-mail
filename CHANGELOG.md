@@ -18,6 +18,14 @@
 - `TestSendNoDefaultRoom`, `TestFormatMessageNoMentions`, `TestMentionUserID`
   test coverage.
 - `.gitignore` with `dist/`.
+- **`-n` / `--dry-run`** flag — parses config and message, shows what would be
+  sent, exits without delivery.
+- **`-v` / `--verbose`** flag — logs "delivered to <room>" on successful send.
+
+### Changed
+
+- **`.deb` packages now use VERSION from file** — `0.2.0` packages contain
+  `0.2.0` binary, not a dev suffix.
 
 ### Fixed
 
@@ -27,6 +35,8 @@
 - Default room is always included, even with explicit recipients.
 - Token-cache corruption from test runs no longer breaks delivery (config token
   fallback).
+- **postinst** removes a real file blocking `/usr/sbin/sendmail` before
+  registering the alternatives symlink (e.g. postfix/courier conflict).
 
 ## 0.1.0 — 2026-07-29
 

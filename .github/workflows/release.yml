@@ -21,7 +21,7 @@ jobs:
           go-version: "1.26"
 
       - name: Build packages
-        run: make deb dist
+        run: make release
 
       - name: Create Release & Upload Assets
         uses: softprops/action-gh-release@v2
