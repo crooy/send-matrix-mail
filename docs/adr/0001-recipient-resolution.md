@@ -1,7 +1,13 @@
 # ADR-0001: Recipient Resolution Model
 
-**Status:** Accepted  
-**Date:** 2026-07-29
+**Status:** Superseded by ADR-0002 (2026-07-29)
+**Date:** 2026-07-29 (original)
+
+## Supersession Notice
+
+This ADR is superseded by ADR-0002. The decision to create DM rooms for
+recipient addresses was reversed — see ADR-0002 for the current model.
+
 
 ## Context
 

@@ -29,10 +29,14 @@ The Matrix user account that the tool authenticates as. This identity performs a
 The local filesystem queue that holds messages when the Matrix homeserver is unreachable. Messages in the spool are **pending** (awaiting next retry) or **failed** (permanently undeliverable). The spool is crash-safe via atomic `tmp/` → `queue/` → `failed/` directory transitions.
 
 **Resolution**
-The process of mapping each recipient address to one or more delivery targets. Algorithm:
-1. Try to create a DM with `@localpart:domain`. If the user exists → deliver to that DM.
-2. Try to join `#localpart:domain`. If the room exists and is joinable → deliver to that room.
-3. Otherwise → deliver to the configured default room.
+The process of mapping each recipient address to a delivery target. Algorithm:
+1. Try to join `#localpart:domain`. If the room exists and is joinable → deliver to that room.
+2. Otherwise → deliver to the configured default room.
+
+**Mention**
+A Matrix push-notification mechanism. When a message is sent to the default room,
+recipients that look like `user@domain` are added to `m.mentions.user_ids` in the
+event content, causing clients to notify the mentioned users without creating a DM room.
 
 **Deduplication**
 When multiple recipients resolve to the same delivery target (e.g. `alice@homeserver` and `bob@homeserver` both fall back to the default room), only one copy of the message is sent to that target. The default room never receives a duplicate if it was already targeted explicitly.

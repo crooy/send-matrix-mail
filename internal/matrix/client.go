@@ -6,7 +6,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -23,8 +22,8 @@ import (
 // DeliveryError carries error information with a retryable flag.
 type DeliveryError struct {
 	RetryableFlag bool
-	Code          int    // HTTP status or sysexits code
-	Msg           string
+	Code          int    // sendmail exit code
+	Msg           string // human-readable description
 }
 
 func (e *DeliveryError) Error() string { return e.Msg }
@@ -36,22 +35,22 @@ func (e *DeliveryError) Retryable() bool { return e.RetryableFlag }
 type Client struct {
 	homeserver  string
 	userID      string
+	accessToken string
+	deviceID    string
 	password    string
 	defaultRoom string
 
 	// runtime state
-	httpClient   *http.Client
-	accessToken  string
-	deviceID     string
-	tokenDir     string
-	joinedRooms  map[string]string // room alias/ID → canonical room ID
+	httpClient *http.Client
+	tokenDir   string
+	joinedRooms map[string]string // alias or room_id → canonical room_id
 }
 
 // NewClient creates a Matrix client. If no cached token exists, it logs in.
 func NewClient(cfg config.MatrixConfig) (*Client, error) {
-	stateDir := cfg.StateDir
-	if stateDir == "" {
-		stateDir = defaultStateDir()
+	tokenDir := defaultStateDir()
+	if cfg.StateDir != "" {
+		tokenDir = cfg.StateDir
 	}
 
 	c := &Client{
@@ -62,99 +61,111 @@ func NewClient(cfg config.MatrixConfig) (*Client, error) {
 		httpClient: &http.Client{
 			Timeout: 30 * time.Second,
 		},
+		tokenDir:    tokenDir,
 		joinedRooms: make(map[string]string),
-		tokenDir:    stateDir,
 	}
 
-	// Use configured access token directly if provided
+	if c.defaultRoom == "" {
+		return nil, &DeliveryError{RetryableFlag: false, Code: 78, Msg: "default_room is required"}
+	}
+
+	// Try loading cached token
+	if err := c.loadToken(); err == nil && c.accessToken != "" {
+		return c, nil
+	}
+
+	// Fall back to config token
 	if cfg.AccessToken != "" {
 		c.accessToken = cfg.AccessToken
 		return c, nil
 	}
 
-	// Load cached token
-	if err := c.loadToken(); err == nil && c.accessToken != "" {
-		return c, nil
-	}
-
-	// Login if no valid token
-	if cfg.Password != "" {
-		if err := c.login(); err != nil {
-			return nil, &DeliveryError{RetryableFlag: false, Code: 78, Msg: fmt.Sprintf("login failed: %v", err)}
-		}
-		if err := c.saveToken(); err != nil {
-			return nil, &DeliveryError{RetryableFlag: false, Code: 73, Msg: fmt.Sprintf("cannot save token: %v", err)}
-		}
-	}
-
-	if c.accessToken == "" {
+	// No cached or config token — try password login
+	if c.password == "" {
 		return nil, &DeliveryError{RetryableFlag: false, Code: 78, Msg: "no access token and no password configured"}
+	}
+	if err := c.login(); err != nil {
+		return nil, err
+	}
+	if err := c.saveToken(); err != nil {
+		return nil, err
 	}
 
 	return c, nil
 }
 
-// Send resolves recipients, deduplicates targets, and sends an m.text message to each unique room.
+// Send resolves the default room and sends the message, mentioning any
+// user recipients alongside any explicitly targeted rooms.
 func (c *Client) Send(ctx context.Context, env *sendmail.Envelope) error {
-	// If no recipients and no default room, nothing to do
-	targets := make(map[string]bool) // canonical room ID → true
+	// Resolve default room once
+	defaultID, err := c.resolveRoomID(ctx, c.defaultRoom)
+	if err != nil {
+		return err
+	}
 
+	// Collect explicitly targeted rooms (via #localpart:domain resolution)
+	targets := make(map[string]bool)
 	for _, recipient := range env.Recipients {
-		roomID, err := c.resolveRecipient(ctx, recipient)
-		if err != nil {
-			// If transient, propagate immediately — caller decides retry.
-			if de, ok := err.(*DeliveryError); ok && de.Retryable() {
-				return err
+		roomID, rErr := c.resolveRecipient(ctx, recipient)
+		if rErr != nil {
+			if de, ok := rErr.(*DeliveryError); ok && de.Retryable() {
+				return rErr
 			}
-			// Permanent error for this recipient: skip it.
 			continue
 		}
 		targets[roomID] = true
 	}
 
-	// Always include default room (unless it already got a message via resolution)
-	defaultID, err := c.resolveRoomID(ctx, c.defaultRoom)
-	if err == nil && !targets[defaultID] {
-		// Only add default if there are no recipients OR explicitly as fallback
-		if len(env.Recipients) == 0 {
-			targets[defaultID] = true
-		}
-	}
+	// Always deliver to the default room
+	targets[defaultID] = true
 
 	if len(targets) == 0 {
 		return &DeliveryError{RetryableFlag: false, Code: 67, Msg: "no deliverable targets"}
 	}
 
-	plainText := formatMessage(env)
-	htmlText := formatMessageHTML(env)
+	// Collect mentions from recipients who aren't rooms
+	var mentions []string
+	for _, recipient := range env.Recipients {
+		userID := mentionUserID(recipient)
+		if userID != "" {
+			mentions = append(mentions, userID)
+		}
+	}
+
+	plainText := formatMessage(env, mentions)
+	htmlText := formatMessageHTML(env, mentions)
 	for roomID := range targets {
-		if err := c.sendText(ctx, roomID, plainText, htmlText); err != nil {
-			return err
+		if sErr := c.sendText(ctx, roomID, plainText, htmlText, mentions); sErr != nil {
+			return sErr
 		}
 	}
 	return nil
 }
 
+// mentionUserID returns a Matrix user ID if the address looks like a
+// user@domain, or empty string if it's a bare localpart or room alias.
+func mentionUserID(addr string) string {
+	localpart, domain, ok := strings.Cut(addr, "@")
+	if !ok || localpart == "" || domain == "" {
+		return ""
+	}
+	// If it starts with # it's a room alias, not a user mention
+	if strings.HasPrefix(localpart, "#") {
+		return ""
+	}
+	return "@" + localpart + ":" + domain
+}
+
 // resolveRecipient maps a recipient address to a Matrix room ID.
-// If recipient is a user address with no room target config, we try DM → room → default.
+// Tries room alias first, then falls back to the default room.
+// Never creates DM rooms.
 func (c *Client) resolveRecipient(ctx context.Context, addr string) (string, error) {
 	localpart, domain, ok := strings.Cut(addr, "@")
 	if !ok {
 		return "", &DeliveryError{RetryableFlag: false, Code: 67, Msg: fmt.Sprintf("invalid recipient: %q", addr)}
 	}
 
-	// 1. Try DM with @localpart:domain
-	userID := "@" + localpart + ":" + domain
-	dmID, err := c.createDM(ctx, userID)
-	if err == nil && dmID != "" {
-		return dmID, nil
-	}
-	// If transient, propagate — caller decides retry.
-	if de, ok := err.(*DeliveryError); ok && de.Retryable() {
-		return "", err
-	}
-
-	// 2. Try room #localpart:domain
+	// 1. Try room #localpart:domain
 	roomAlias := "#" + localpart + ":" + domain
 	roomID, err := c.joinRoom(ctx, roomAlias)
 	if err == nil && roomID != "" {
@@ -164,73 +175,8 @@ func (c *Client) resolveRecipient(ctx context.Context, addr string) (string, err
 		return "", err
 	}
 
-	// 3. Fallback to default room
+	// 2. Fallback to default room
 	return c.resolveRoomID(ctx, c.defaultRoom)
-}
-
-// createDM creates (or finds) a DM room with the given user.
-// First checks that the user exists by looking up their profile.
-func (c *Client) createDM(ctx context.Context, userID string) (string, error) {
-	// Check user exists by looking up their profile.
-	// If the user doesn't exist (404), don't create a phantom room —
-	// let the caller fall through to the default room.
-	if err := c.checkUserExists(ctx, userID); err != nil {
-		return "", err
-	}
-
-	// Try creating a DM room via /createRoom with is_direct
-	body := map[string]interface{}{
-		"is_direct":    true,
-		"preset":       "trusted_private_chat",
-		"invite":       []string{userID},
-		"visibility":   "private",
-		"initial_state": []interface{}{},
-	}
-	var resp struct {
-		RoomID string `json:"room_id"`
-		ErrCode string `json:"errcode"`
-		Error   string `json:"error"`
-	}
-	if err := c.doRequest(ctx, "POST", "/_matrix/client/v3/createRoom", body, &resp); err != nil {
-		return "", err
-	}
-	if resp.ErrCode != "" {
-		return "", &DeliveryError{
-			RetryableFlag: resp.ErrCode == "M_LIMIT_EXCEEDED",
-			Msg:           fmt.Sprintf("create DM: %s %s", resp.ErrCode, resp.Error),
-		}
-	}
-	return resp.RoomID, nil
-}
-
-// checkUserExists verifies that a Matrix user exists by looking up their profile.
-// Returns a permanent DeliveryError if the user doesn't exist.
-func (c *Client) checkUserExists(ctx context.Context, userID string) error {
-	var resp struct {
-		ErrCode string `json:"errcode"`
-		Error   string `json:"error"`
-	}
-	if err := c.doRequest(ctx, "GET", "/_matrix/client/v3/profile/"+url.PathEscape(userID), nil, &resp); err != nil {
-		// If the error is itself a DeliveryError, propagate it as-is.
-		var de *DeliveryError
-		if errors.As(err, &de) {
-			return de
-		}
-		return err
-	}
-	if resp.ErrCode == "M_NOT_FOUND" {
-		return &DeliveryError{
-			RetryableFlag: false,
-			Msg:           fmt.Sprintf("user %q not found", userID),
-		}
-	}
-	if resp.ErrCode != "" {
-		return &DeliveryError{
-			RetryableFlag: isTransient(resp.ErrCode),
-			Msg:           fmt.Sprintf("lookup user: %s %s", resp.ErrCode, resp.Error),
-		}
-	}
-	return nil
 }
 
 // joinRoom joins a room by alias and returns the canonical room ID.
@@ -278,14 +224,21 @@ func (c *Client) resolveRoomID(ctx context.Context, id string) (string, error) {
 }
 
 // sendText sends an m.text message to a room, with HTML formatting
-// for clients that support org.matrix.custom.html.
-func (c *Client) sendText(ctx context.Context, roomID, plainText, htmlText string) error {
+// for clients that support org.matrix.custom.html, and user mentions.
+func (c *Client) sendText(ctx context.Context, roomID, plainText, htmlText string, mentions []string) error {
 	content := map[string]interface{}{
-		"msgtype":       "m.text",
-		"body":          plainText,
-		"format":        "org.matrix.custom.html",
-		"formatted_body": htmlText,
+		"msgtype":        "m.text",
+		"body":           plainText,
+		"format":         "org.matrix.custom.html",
+		"formatted_body":  htmlText,
 	}
+
+	if len(mentions) > 0 {
+		content["m.mentions"] = map[string]interface{}{
+			"user_ids": mentions,
+		}
+	}
+
 	// Generate txnId: nanosecond timestamp + random suffix
 	txnID := fmt.Sprintf("%d-%d", time.Now().UnixNano(), os.Getpid())
 	apiURL := fmt.Sprintf("%s/_matrix/client/v3/rooms/%s/send/m.room.message/%s",
@@ -449,6 +402,9 @@ func (c *Client) loadToken() error {
 	if err := json.Unmarshal(b, &data); err != nil {
 		return err
 	}
+	if data.AccessToken == "" {
+		return fmt.Errorf("empty access token")
+	}
 	c.accessToken = data.AccessToken
 	c.deviceID = data.DeviceID
 	return nil
@@ -470,16 +426,20 @@ func (c *Client) saveToken() error {
 }
 
 // formatMessage builds a plain-text m.text message body with clean formatting.
-func formatMessage(env *sendmail.Envelope) string {
+func formatMessage(env *sendmail.Envelope, mentions []string) string {
 	var b strings.Builder
 
-	// Extract key headers for display
 	subject := env.Subject
 	from := extractHeader(env.Headers, "From")
 	to := extractHeader(env.Headers, "To")
 	date := env.Date
 	if date == "" {
 		date = extractHeader(env.Headers, "Date")
+	}
+
+	// Mention line
+	if len(mentions) > 0 {
+		fmt.Fprintf(&b, "Mention: %s\n\n", strings.Join(mentions, " "))
 	}
 
 	// Header block with padding for alignment
@@ -499,7 +459,6 @@ func formatMessage(env *sendmail.Envelope) string {
 	b.WriteString("\n")
 
 	if env.Body != "" {
-		// Indent body by 2 spaces
 		indented := "  " + strings.ReplaceAll(env.Body, "\n", "\n  ")
 		b.WriteString(indented)
 	}
@@ -509,7 +468,7 @@ func formatMessage(env *sendmail.Envelope) string {
 
 // formatMessageHTML builds an HTML-formatted message body for Matrix clients
 // that support org.matrix.custom.html formatting.
-func formatMessageHTML(env *sendmail.Envelope) string {
+func formatMessageHTML(env *sendmail.Envelope, mentions []string) string {
 	var b strings.Builder
 
 	subject := env.Subject
@@ -520,7 +479,15 @@ func formatMessageHTML(env *sendmail.Envelope) string {
 		date = extractHeader(env.Headers, "Date")
 	}
 
-	// Horizontal rule
+	// Mention line
+	if len(mentions) > 0 {
+		for _, userID := range mentions {
+			escapedUser := htmlEscape(userID)
+			fmt.Fprintf(&b, "<a href=\"https://matrix.to/#/%s\">%s</a> ", escapedUser, escapedUser)
+		}
+		b.WriteString("<br><br>")
+	}
+
 	// Header block with bold labels
 	if from != "" {
 		fmt.Fprintf(&b, "<b>From:</b>   %s<br>", htmlEscape(from))
@@ -535,10 +502,9 @@ func formatMessageHTML(env *sendmail.Envelope) string {
 		fmt.Fprintf(&b, "<b>Date:</b>   %s<br>", htmlEscape(date))
 	}
 
-		b.WriteString("<br>")
+	b.WriteString("<br>")
 
 	if env.Body != "" {
-		// Indent body by 2 non-breaking spaces on every line
 		escaped := htmlEscape(env.Body)
 		lines := strings.Split(escaped, "\n")
 		for i, line := range lines {
