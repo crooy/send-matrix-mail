@@ -12,12 +12,15 @@ else
 endif
 
 # Release builds: VERSION from file must be a number, no commit suffix
-release: clean build dist deb
+# Use a guard target that runs as a prerequisite before everything else.
+release: check-version clean build dist deb
 release: LDFLAGS := -ldflags="-X main.version=$(VERSION)"
-release: VERSION_CHECK := $(shell echo $(VERSION) | grep -q '^[0-9]' && echo ok)
-ifeq ($(VERSION_CHECK),)
-$(error VERSION must start with a digit for release (got "$(VERSION)"))
-endif
+
+check-version:
+	@if ! echo "$(VERSION)" | grep -q '^[0-9]'; then \
+		echo "ERROR: VERSION must start with a digit for release (got '$(VERSION)')" >&2; \
+		exit 1; \
+	fi
 
 BINNAME  ?= send-matrix-mail
 BINDIR   ?= /usr/local/bin
