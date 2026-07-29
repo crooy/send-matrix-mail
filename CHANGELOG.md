@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.3.1 — 2026-07-29
+
+### Fixed
+
+- **Release workflow**: `make release` now errors (instead of silently skipping)
+  when VERSION doesn't start with a digit.
+- **Release notes**: Only the latest version section is posted, not the full
+  changelog.
+
 ## 0.3.0 — 2026-07-29
 
 ### Added
