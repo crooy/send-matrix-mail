@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.3.0 — 2026-07-29
+
+### Added
+
+- **`-n` / `--dry-run`** flag — parses config and message, shows what would be
+  sent, exits without delivery.
+- **`-v` / `--verbose`** flag — logs "delivered to <room>" on successful send.
+
+### Fixed
+
+- **`.deb` version matches VERSION file** — no more `0.1.0` debs from `0.2.0` releases.
+- **postinst removes blocking sendmail binary** before registering alternatives
+  (conflict with postfix/courier resolved).
+- **`--version` now works reliably** — embedded via ldflags in release builds.
+
+---
+
 ## 0.2.0 — 2026-07-29
 
 ### Changed
