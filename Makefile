@@ -12,10 +12,11 @@ else
 endif
 
 # Release builds: VERSION from file must be a number, no commit suffix
+release: clean build dist deb
 release: LDFLAGS := -ldflags="-X main.version=$(VERSION)"
 release: VERSION_CHECK := $(shell echo $(VERSION) | grep -q '^[0-9]' && echo ok)
-ifeq ($(VERSION_CHECK),ok)
-release: clean build dist deb
+ifeq ($(VERSION_CHECK),)
+$(error VERSION must start with a digit for release (got "$(VERSION)"))
 endif
 
 BINNAME  ?= send-matrix-mail

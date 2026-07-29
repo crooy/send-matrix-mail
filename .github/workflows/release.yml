@@ -23,11 +23,15 @@ jobs:
       - name: Build packages
         run: make release
 
+      - name: Extract release notes
+        run: |
+          awk '/^## [0-9]/{if(found) exit} /^## [0-9]/{found=1} found' CHANGELOG.md > /tmp/release-notes.md
+
       - name: Create Release & Upload Assets
         uses: softprops/action-gh-release@v2
         with:
           name: send-matrix-mail ${{ github.ref_name }}
-          body_path: CHANGELOG.md
+          body_path: /tmp/release-notes.md
           draft: false
           prerelease: false
           files: |
