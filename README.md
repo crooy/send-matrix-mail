@@ -7,11 +7,11 @@ Designed for cron, monitoring systems, and scripts that already pipe email throu
 
 ```sh
 # Install
-go install send-matrix-mail@latest
+go install github.com/crooy/send-matrix-mail@latest
 
 # Configure
 mkdir -p ~/.config/send-matrix-mail
-cat > ~/.config/send-matrix-mail/sendmailrc.toml << 'EOF'
+cat > ~/.config/send-matrix-mail/send-matrix-mail.toml << 'EOF'
 [matrix]
 homeserver = "https://matrix.example.com"
 user_id    = "@bot:example.com"
@@ -26,31 +26,51 @@ To: ops@matrix
 Disk usage at 95% on /dev/sda1" | send-matrix-mail -t
 ```
 
-## Installation
+## Installatie
+
+### Debian package
+
+Download the latest `.deb` from [GitHub Releases](https://github.com/crooy/send-matrix-mail/releases):
+
+```sh
+dpkg -i send-matrix-mail_*.deb
+```
+
+Registers `/usr/sbin/sendmail` as an alternative via `update-alternatives`. Config at `/etc/send-matrix-mail/send-matrix-mail.toml`.
 
 ### From source (Go ≥1.22)
 
 ```sh
-go install github.com/yourorg/send-matrix-mail@latest  # or
-git clone https://github.com/yourorg/send-matrix-mail.git
+go install github.com/crooy/send-matrix-mail@latest
+```
+
+Or build from a clone:
+
+```sh
+git clone https://github.com/crooy/send-matrix-mail.git
 cd send-matrix-mail
 go build -o /usr/local/bin/send-matrix-mail .
 ```
 
 Single static binary — zero runtime dependencies.
 
-### From a release
+### From a release tarball
 
-Download the pre-built binary for your platform, place it in `$PATH`, and `chmod +x`.
+Download the latest `tar.gz` from [GitHub Releases](https://github.com/crooy/send-matrix-mail/releases):
+
+```sh
+tar xzf send-matrix-mail-*.tar.gz
+cp send-matrix-mail*/send-matrix-mail /usr/local/bin/
+```
 
 ## Configuration
 
 Search order (first found wins):
 
 1. `-C /path/to/config` (CLI flag, sendmail `-C` compat)
-2. `$XDG_CONFIG_HOME/send-matrix-mail/sendmailrc.toml`
-3. `~/.config/send-matrix-mail/sendmailrc.toml`
-4. `/etc/send-matrix-mail/sendmailrc.toml`
+2. `$XDG_CONFIG_HOME/send-matrix-mail/send-matrix-mail.toml`
+3. `~/.config/send-matrix-mail/send-matrix-mail.toml`
+4. `/etc/send-matrix-mail/send-matrix-mail.toml`
 
 ### Full example
 
