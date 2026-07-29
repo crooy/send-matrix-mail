@@ -1,0 +1,27 @@
+# send-matrix-mail configuration
+# Search paths: -C <path> → $XDG_CONFIG_HOME/send-matrix-mail/sendmailrc.toml → /etc/send-matrix-mail/sendmailrc.toml
+
+# State/spool directory (default: $XDG_STATE_HOME/send-matrix-mail)
+# spool_dir = "/var/spool/send-matrix-mail"
+
+# Log level: debug, info, warn, error
+# log_level = "info"
+
+[matrix]
+# Required: your homeserver URL
+# homeserver = "https://matrix.example.com"
+
+# Required: the bot's Matrix user ID
+# user_id = "@bot:example.com"
+
+# Authentication: password (used for initial login; token is cached)
+# password = "your_password"
+
+# Default room for messages that can't be resolved to a DM or named room
+# Can be a room ID (!roomid:server) or alias (#roomname:server)
+# default_room = "#alerts:example.com"
+
+[author]
+# Default From address (lowest priority in resolution chain)
+# default_from = "root@example.com"
+# default_host = "example.com"
