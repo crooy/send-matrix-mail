@@ -11,10 +11,11 @@ configure)
 		rm -f "$SENDMAIL"
 	fi
 
-	# Register as sendmail alternative
-	update-alternatives --install "$SENDMAIL" sendmail "$BIN" 50 \
+	# Register as sendmail alternative (priority 100 to beat postfix/courier)
+	update-alternatives --force --install "$SENDMAIL" sendmail "$BIN" 100 \
 		--slave /usr/share/man/man1/sendmail.1.gz sendmail.1.gz \
 			/usr/share/man/man1/send-matrix-mail.1.gz
+	update-alternatives --set sendmail "$BIN" 2>/dev/null || true
 	;;
 abort-upgrade|abort-remove|abort-install)
 	;;

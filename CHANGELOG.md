@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.3.2 — 2026-07-29
+
+### Fixed
+
+- **`-l <path>` flag no longer leaks to sendmail.Parse.** The logfile path
+  was passed as a recipient argument, causing the log path to appear in
+  the recipient list and potentially confusing parsing. Flags are now
+  stripped before passing remaining args to sendmail.Parse.
+
+---
+
 ## 0.3.1 — 2026-07-29
 
 ### Fixed

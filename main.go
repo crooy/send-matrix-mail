@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"log"
 	"os"
 	"os/signal"
@@ -22,14 +23,16 @@ import (
 // version is set at build time via -ldflags. See Makefile.
 var version = "dev"
 
-// Defaults
-const defaultVersionFile = "VERSION"
+const subjectDefault = "[send-matrix-mail]"
 
 func main() {
 	var dryRun bool
 	var verbose bool
+	var logPath string
+	var filteredArgs []string
 
-	// Early flags: --version, -v, -n (before config loading)
+	// Early flags: --version, -v, -n, -l (before config loading)
+	// These are stripped before passing remaining args to sendmail.Parse.
 	args := os.Args[1:]
 	for i := 0; i < len(args); i++ {
 		a := args[i]
@@ -37,13 +40,33 @@ func main() {
 		case a == "--version":
 			fmt.Println("send-matrix-mail", version)
 			return
+		case a == "--":
+			filteredArgs = append(filteredArgs, a)
+			filteredArgs = append(filteredArgs, args[i+1:]...)
+			break
 		case a == "-v" || a == "--verbose":
 			verbose = true
 		case a == "-n" || a == "--dry-run":
 			dryRun = true
-		case a == "--":
-			break
+		case a == "-l" && i+1 < len(args):
+			i++
+			logPath = args[i]
+		default:
+			filteredArgs = append(filteredArgs, a)
 		}
+	}
+
+	// Rebuild os.Args[1:] from filtered list for sendmail.Parse
+	cleanArgs := append([]string{os.Args[0]}, filteredArgs...)
+
+	// Redirect log output to a file if requested
+	if logPath != "" {
+		f, err := os.OpenFile(logPath, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0600)
+		if err != nil {
+			log.Fatalf("log file: %v", err)
+		}
+		defer f.Close()
+		log.SetOutput(io.MultiWriter(os.Stderr, f))
 	}
 
 	// Extract -C <path> from args (sendmail compat flag) before passing to sendmail.Parse
@@ -57,7 +80,7 @@ func main() {
 	}
 
 	// Parse sendmail args + stdin
-	env, err := sendmail.Parse(os.Args, os.Stdin, cfg.Author)
+	env, err := sendmail.Parse(cleanArgs, os.Stdin, cfg.Author)
 	if err != nil {
 		var se *sendmail.Error
 		if errors.As(err, &se) {
@@ -76,6 +99,11 @@ func main() {
 		fmt.Printf("Room:    %s\n", cfg.Matrix.DefaultRoom)
 		fmt.Println("--- OK (dry run, no message sent) ---")
 		return
+	}
+
+	// Default subject when missing
+	if env.Subject == "" {
+		env.Subject = subjectDefault
 	}
 
 	// Create matrix client
@@ -105,7 +133,11 @@ func main() {
 	}
 
 	if verbose {
-		log.Printf("delivered to %s (recipients: %s)", cfg.Matrix.DefaultRoom, strings.Join(env.Recipients, ", "))
+		msg := fmt.Sprintf("delivered to %s (recipients: %s, subject: %s)",
+			cfg.Matrix.DefaultRoom,
+			strings.Join(env.Recipients, ", "),
+			env.Subject)
+		log.Print(msg)
 	}
 }
 
