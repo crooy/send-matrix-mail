@@ -3,6 +3,15 @@
 A drop-in `sendmail` replacement that delivers RFC 5322 mail as Matrix `m.text` messages.
 Designed for cron, monitoring systems, and scripts that already pipe email through sendmail.
 
+On Debian, the `.deb` package registers itself via `update-alternatives`:
+
+```
+/usr/sbin/sendmail → /etc/alternatives/sendmail → /usr/bin/send-matrix-mail
+```
+
+So everything that calls `/usr/sbin/sendmail` (default MTA path) — cron, monit, syslog, healthchecks —
+works without any configuration changes.
+
 ## Quick start
 
 ```sh
